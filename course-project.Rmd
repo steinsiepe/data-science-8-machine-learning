@@ -1,0 +1,93 @@
+---
+title: "Course Project Machine Learning"
+author: "V. K. Steinsiepe"
+date: "7/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(caret)
+library(dplyr)
+library(readr)
+```
+
+## Background
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict wether they did barbell lifts correctly or incorrectly.
+
+## Goal
+
+- predict the "classe" variable
+
+Create a report describing
+- how you built your model
+- how you used cross validation
+- what you think the expected out of sample error is
+- why you made the choices you did
+- predict 20 different test cases
+
+## Load the Data
+
+First I loaded the given csv-files into R, specifying the missing values in the spreadsheet.
+
+```{r load}
+data <- read_csv("pml-training.csv", na = c("NA", "", "#DIV/0!"))
+test <- read_csv("pml-testing.csv", na = c("NA", "", "#DIV/0!"))
+data$classe <- as.factor(data$classe)
+```
+
+## Explore and Clean the Data
+
+The data consists of `r nrow(data)` rows and `r ncol(data)` columns. Variables are either complete or contain a very high amount of missing values. We assume that these will be very difficult to predict with and therefore leave them out.
+
+```{r clean1}
+table(sapply(data, function(x) round(mean(is.na(x)),2)))
+data <- data %>% select_if(~ !any(is.na(.)))
+```
+
+The first 7 variables seem to be non-sensor data and therefore we will remove them too.
+
+```{r clean2}
+names(data[1:7])
+data <- data[, -(1:7)]
+```
+
+## Cross Validation
+
+The outer split has already been done (training set vs testing set). We will do a 5 x 2 cross validation for the inner  split (training set vs validation set).
+
+```{r crossvalidate}
+tc <- trainControl(method = "repeatedcv", number = 5, repeats = 2)
+```
+
+## Model Training
+
+Training the model with this dataset proved to be computationally intensive for me, which is why I chose to do preprocessing with principal component analysis. Then I tested several methods for classification problems: decision tree, nearest neighbors and ranger, which is a faster implementation of random forest.
+
+```{r train}
+methods <- c("rpart", "knn", "ranger")
+tb1 <- data.frame(matrix(ncol = 3, nrow = length(methods)))
+colnames(tb1) <- c("method", "accuracy", "elapsed")
+for(i in 1:length(methods)) {
+  sys <- system.time(fit <- train(classe ~ ., data, preProcess = c("center", "scale", "pca"), method = methods[i], trControl = tc))
+  tb1[i, 1] <- methods[i]
+  tb1[i, 2] <- round(mean(fit$resample$Accuracy), 3)
+  tb1[i, 3] <- round(sys["elapsed"]/60, 1)
+}
+print(tb1)
+```
+
+## Out of Sample Error and Testing
+
+Nearest neighbors proved to be quite a lot faster than the ranger method, which is why I decided to use it for the final model. The out of sample error for this is `r 1-tb1$Accuracy[2]`. The prediction for the final cases is as follows:
+
+```{r test}
+fit <- train(classe ~ ., data, preProcess = c("center", "scale", "pca"), method = "knn", trControl = tc)
+pred <- predict(fit, test)
+pred
+```
+
+## Conclusion
+
+With the nearest neighbors method and preprocessing with principal component analysis we get a high accuracy at very low computational cost.
